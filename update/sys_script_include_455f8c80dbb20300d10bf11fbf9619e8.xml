@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sys_script_include">
+    <sys_script_include action="INSERT_OR_UPDATE">
+        <access>public</access>
+        <active>true</active>
+        <api_name>x_109614_auto_clos.AutoCloser</api_name>
+        <client_callable>false</client_callable>
+        <description/>
+        <name>AutoCloser</name>
+        <script><![CDATA[/******************************************************************************************************
+ * AutoCloser
+ * 
+ * moves a task record to a closed state a certain period of time after it was moved to the pre-closed
+ * state.  Typically, the pre-close state will be "resolved" and this utility will be used to 
+ * close cases after a period of time.
+ *
+ * Typically, this will be invoked using a scheduled script execution of the format:
+ *
+ *   new AutoCloser('incident', 2).closeCases();
+ *
+ *****************************************************************************************************/
+var AutoCloser = Class.create();
+AutoCloser.prototype = {
+    
+	table : 'sn_customerservice_case',
+	scheduleSysId : '090eecae0a0a0b260077e1dfa71da828', // 8-5 weekdays excl. holidays
+	dailyBusinessHours : 9,
+	preCloseState : 6,
+	closedState : 3,
+	
+	
+	initialize: function(table, stateValue, scheduleSysId, dailyBusinessHours) {
+		
+		if (table) {
+			this.table = table;
+		}
+		
+		if (scheduleSysId) {
+			this.scheduleSysId = scheduleSysId;
+		}
+		this.schedule = new GlideSchedule(this.scheduleSysId);
+		
+		if (stateValue) {
+			this.preCloseState = stateValue;
+		}
+		
+		if (dailyBusinessHours) {
+			this.dailyBusinessHours = dailyBusinessHours;
+		}
+				
+		var choice = new GlideRecord('sys_choice');
+		choice.addQuery('name', this.table);
+		choice.addQuery('value', this.preCloseState);
+		choice.addQuery('inactive', false);
+		choice.query();
+	
+		if (choice.next()) {
+			this.preCloseStateLabel = choice.label;
+		}
+		else {
+			throw 'Failed to lookup state "' + this.preCloseState + '" for table "' + this.table + '".';
+		}
+	},
+
+	closeCases: function(autoCloseDays) {
+		
+		if (!autoCloseDays) {
+			autoCloseDays = gs.getProperty('x_109614_auto_clos.auto_close_days') || 5;
+		}
+		
+		// get all cases in pre-close state
+		var casesInState = new GlideRecord(this.table);
+		casesInState.addQuery('state', this.preCloseState);
+		casesInState.addActiveQuery();
+		casesInState.query();
+
+		var totalAutoclosed = 0;
+		
+		while(casesInState.next()) {
+			
+			var mostRecentResolutionTime = this._findMostRecentResolutionTime(casesInState);
+			if (mostRecentResolutionTime == null) {
+				gs.warn('***WARNING*** Could not find history moving {0} to "{1}".  Needs evaluation.', casesInState.number, this.preCloseStateLabel);
+				continue;
+			}
+			
+			//gs.info('{0} has last update of {1}', casesInState.number, mostRecentResolutionTime + '');
+			
+			var msSinceResolution = this.schedule.duration(mostRecentResolutionTime, new GlideDateTime()).getNumericValue();
+			gs.info('{0} was moved to "{5}" on "{1}".  {2} seconds ( ~~ {3} hrs, or ~~ {4} business days ) ago.',
+					[casesInState.number,
+					mostRecentResolutionTime.getDisplayValue() + '',
+					msSinceResolution / 1000,
+					(msSinceResolution / 1000 / 60 / 60),
+					(msSinceResolution / 1000 / 60 / 60 / this.dailyBusinessHours),
+					 this.preCloseStateLabel]);
+		
+			var maxMsBeforeClose = this._getAutoCloseMilliseconds(autoCloseDays);
+			if (msSinceResolution > maxMsBeforeClose) {
+				this._closeCase(casesInState, autoCloseDays);
+				totalAutoclosed++;
+			}
+			else {
+				gs.info('{0} has been in state "{3}" for {1} days.  Cases will be automatically closed after {2} days. Skipping auto close.',
+					   casesInState.number,
+					   (msSinceResolution / 1000 / 60 / 60 / this.dailyBusinessHours),
+					   autoCloseDays,
+					   this.preCloseStateLabel);
+			}
+		}
+		
+		gs.info('Closed {0} cases automatically', totalAutoclosed);
+	},
+	
+	_findMostRecentResolutionTime: function(taskGR) {
+
+		// get the most recent move to pre-close status
+		var check = new GlideRecord('sys_history_line');
+		check.addQuery('set.id', taskGR.getUniqueValue());
+		check.addQuery('field', 'state');
+		check.addQuery('new', this.preCloseStateLabel);
+		check.orderByDesc('update_time');
+		check.setLimit(1);
+		check.query();
+
+		return check.next() ?  new GlideDateTime(check.getValue('update_time')) : null;
+	},
+
+	_getAutoCloseMilliseconds: function(autoCloseDays) {
+		return autoCloseDays * this.dailyBusinessHours * 3600 * 1000;
+	},
+
+	_closeCase: function(taskGR, autoCloseDays) {
+		
+		var msg = 'Automatically closing ' + taskGR.number + ' as it has been in state "' + this.preCloseStateLabel + '" for ' + autoCloseDays + ' days.';
+		gs.info(msg);
+		taskGR.work_notes = msg;
+		taskGR.setValue('state', this.closedState);
+		taskGR.update();	
+	},
+
+    type: 'AutoCloser'
+};]]></script>
+        <sys_class_name>sys_script_include</sys_class_name>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2017-11-27 20:20:01</sys_created_on>
+        <sys_id>455f8c80dbb20300d10bf11fbf9619e8</sys_id>
+        <sys_mod_count>30</sys_mod_count>
+        <sys_name>AutoCloser</sys_name>
+        <sys_package display_value="Scoped Auto Close" source="x_109614_auto_clos">473f4440db320300d10bf11fbf96191e</sys_package>
+        <sys_policy>read</sys_policy>
+        <sys_scope display_value="Scoped Auto Close">473f4440db320300d10bf11fbf96191e</sys_scope>
+        <sys_update_name>sys_script_include_455f8c80dbb20300d10bf11fbf9619e8</sys_update_name>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2017-11-28 06:40:06</sys_updated_on>
+    </sys_script_include>
+</record_update>
