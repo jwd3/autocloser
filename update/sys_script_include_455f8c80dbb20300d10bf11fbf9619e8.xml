@@ -93,7 +93,7 @@ AutoCloser.prototype = {
 			this._debug('{0} has last update of {1}', casesInState.number, mostRecentResolutionTime + '');
 			
 			var msSinceResolution = this.schedule.duration(mostRecentResolutionTime, new GlideDateTime()).getNumericValue();
-			this._log('{0} was moved to "{5}" on "{1}".  {2} seconds ( ~~ {3} hrs, or ~~ {4} business days ) ago.',
+			this._debug('{0} was moved to "{5}" on "{1}".  {2} seconds ( ~~ {3} hrs, or ~~ {4} business days ) ago.',
 					[casesInState.number,
 					mostRecentResolutionTime.getDisplayValue() + '',
 					msSinceResolution / 1000,
@@ -104,7 +104,7 @@ AutoCloser.prototype = {
 			var maxMsBeforeClose = this._getAutoCloseMilliseconds(autoCloseDays);
 			if (msSinceResolution > maxMsBeforeClose) {
 				this._closeCase(casesInState, autoCloseDays);
-				closedCases.push(caseInState.number);
+				closedCases.push(casesInState.getValue('number'));
 			}
 			else {
 				this._log('{0} has been in state "{3}" for {1} days.  Records will be automatically closed after {2} days. Skipping auto close.',
@@ -120,7 +120,14 @@ AutoCloser.prototype = {
 	
 	_findMostRecentResolutionTime: function(taskGR) {
 
+		/***
+		 * This needs some work.  Not sure what best source is.
+		 * sys_history_line is not guaranteed to be there, but cannot access GlideHistorySet().generate() inside scoped app.
+		 * is state field automatically audited for Task-based tables?
+		 */
+		
 		// get the most recent move to pre-close status
+		/*
 		var check = new GlideRecord('sys_history_line');
 		check.addQuery('set.id', taskGR.getUniqueValue());
 		check.addQuery('field', 'state');
@@ -128,8 +135,20 @@ AutoCloser.prototype = {
 		check.orderByDesc('update_time');
 		check.setLimit(1);
 		check.query();
-
+		
 		return check.next() ?  new GlideDateTime(check.getValue('update_time')) : null;
+		*/
+		
+		var check = new GlideRecord('sys_audit');
+		check.addQuery('tablename', this.table);
+		check.addQuery('documentkey', taskGR.getUniqueValue());
+		check.addQuery('fieldname', 'state');
+		check.addQuery('newvalue', this.preCloseState);
+		check.orderByDesc('sys_created_on');
+		check.setLimit(1);
+		check.query();
+		
+		return check.next() ?  new GlideDateTime(check.getValue('sys_created_on')) : null;
 	},
 
 	_getAutoCloseMilliseconds: function(autoCloseDays) {
@@ -178,13 +197,13 @@ AutoCloser.prototype = {
         <sys_created_by>admin</sys_created_by>
         <sys_created_on>2017-11-27 20:20:01</sys_created_on>
         <sys_id>455f8c80dbb20300d10bf11fbf9619e8</sys_id>
-        <sys_mod_count>38</sys_mod_count>
+        <sys_mod_count>44</sys_mod_count>
         <sys_name>AutoCloser</sys_name>
         <sys_package display_value="Scoped Auto Close" source="x_109614_auto_clos">473f4440db320300d10bf11fbf96191e</sys_package>
         <sys_policy>read</sys_policy>
         <sys_scope display_value="Scoped Auto Close">473f4440db320300d10bf11fbf96191e</sys_scope>
         <sys_update_name>sys_script_include_455f8c80dbb20300d10bf11fbf9619e8</sys_update_name>
         <sys_updated_by>admin</sys_updated_by>
-        <sys_updated_on>2017-11-28 18:03:07</sys_updated_on>
+        <sys_updated_on>2017-11-28 19:37:19</sys_updated_on>
     </sys_script_include>
 </record_update>
